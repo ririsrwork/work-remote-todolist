@@ -1,20 +1,70 @@
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 from datetime import date
+import pandas as pd
 
 st.set_page_config(page_title="Task - To Do List", page_icon="📝", layout="centered")
 
 st.title("📝 Task - To Do List")
-st.caption("A task management application powered by Python & Streamlit")
+st.caption("A task management application powered by Google Sheets & Streamlit")
 
+# Connect to Google Sheets via Secrets
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+# Function to load data from Google Sheets
+def load_data():
+    try:
+        df = conn.read(worksheet="Sheet1", ttl=0)
+        if df.empty or "task" not in df.columns:
+            return []
+        
+        # Clean empty rows
+        df = df.dropna(subset=["task"])
+        tasks = []
+        for _, row in df.iterrows():
+            # Convert date strings back to Python date objects
+            t_date = date.fromisoformat(str(row["task_date"])) if pd.notna(row["task_date"]) else date.today()
+            d_date = date.fromisoformat(str(row["due_date"])) if pd.notna(row["due_date"]) else date.today()
+            
+            tasks.append({
+                "task": str(row["task"]),
+                "description": str(row["description"]) if pd.notna(row["description"]) else "",
+                "task_date": t_date,
+                "due_date": d_date,
+                "priority": str(row["priority"]) if pd.notna(row["priority"]) else "Low",
+                "status": str(row["status"]) if pd.notna(row["status"]) else "On Progress"
+            })
+        return tasks
+    except Exception as e:
+        st.error(f"Failed to load data from Google Sheets: {e}")
+        return []
+
+# Function to save data to Google Sheets
+def save_data(tasks):
+    if tasks:
+        df = pd.DataFrame(tasks)
+        # Convert date objects to string format for JSON/Sheets compatibility
+        df["task_date"] = df["task_date"].astype(str)
+        df["due_date"] = df["due_date"].astype(str)
+    else:
+        # Create an empty DataFrame with required headers if no tasks exist
+        df = pd.DataFrame(columns=["task", "description", "task_date", "due_date", "priority", "status"])
+    
+    try:
+        conn.update(worksheet="Sheet1", data=df)
+        st.cache_data.clear()
+    except Exception as e:
+        st.error(f"Failed to save data to Google Sheets: {e}")
+
+# Initialize session state
 if "tasks" not in st.session_state:
-    st.session_state.tasks = []
+    st.session_state.tasks = load_data()
 
 # Add Task Form
 with st.form("add_task_form", clear_on_submit=True):
     new_task = st.text_input("Task Title *", placeholder="E.g., Complete project report...")
     description = st.text_area("Description (Optional)", placeholder="Add details, notes, or links here...")
     
-    # 4 Columns in form: Task Date, Due Date, Priority, Status
     col_tdate, col_ddate, col_priority, col_status = st.columns(4)
     with col_tdate:
         task_date = st.date_input("Task Date", value=date.today())
@@ -35,7 +85,8 @@ with st.form("add_task_form", clear_on_submit=True):
             "priority": priority,
             "status": status
         })
-        st.success("Task added successfully!")
+        save_data(st.session_state.tasks)
+        st.success("Task added and saved to Google Sheets successfully!")
         st.rerun()
 
 st.divider()
@@ -64,7 +115,6 @@ if st.session_state.tasks:
                 if item.get("description"):
                     st.caption(item["description"])
                 
-                # Display Task Date & Due Date
                 t_date = item.get("task_date", date.today())
                 st.text(f"📌 Task Date: {t_date} | 📅 Due: {item['due_date']}")
             
@@ -84,12 +134,14 @@ if st.session_state.tasks:
                 
                 if new_status != item["status"]:
                     st.session_state.tasks[index]["status"] = new_status
+                    save_data(st.session_state.tasks)
                     st.rerun()
             
             with col_action:
                 st.write("") 
                 if st.button("🗑️ Delete", key=f"del_{index}"):
                     st.session_state.tasks.pop(index)
+                    save_data(st.session_state.tasks)
                     st.rerun()
                     
             st.divider()
