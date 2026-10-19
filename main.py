@@ -43,18 +43,19 @@ def load_data():
 def save_data(tasks):
     if tasks:
         df = pd.DataFrame(tasks)
-        # Convert date objects to string format for JSON/Sheets compatibility
         df["task_date"] = df["task_date"].astype(str)
         df["due_date"] = df["due_date"].astype(str)
     else:
-        # Create an empty DataFrame with required headers if no tasks exist
         df = pd.DataFrame(columns=["task", "description", "task_date", "due_date", "priority", "status"])
     
     try:
+        # Gunakan pembaruan data yang terjamin menyimpan seluruh dataframe
         conn.update(worksheet="Sheet1", data=df)
         st.cache_data.clear()
+        return True
     except Exception as e:
         st.error(f"Failed to save data to Google Sheets: {e}")
+        return False
 
 # Initialize session state
 if "tasks" not in st.session_state:
@@ -76,18 +77,21 @@ with st.form("add_task_form", clear_on_submit=True):
         status = st.selectbox("Initial Status", ["On Progress", "FU", "Done"])
     
     submitted = st.form_submit_button("➕ Add Task", use_container_width=True)
-    if submitted and new_task.strip() != "":
-        st.session_state.tasks.append({
-            "task": new_task,
-            "description": description,
-            "task_date": task_date,
-            "due_date": due_date,
-            "priority": priority,
-            "status": status
-        })
-        save_data(st.session_state.tasks)
-        st.success("Task added and saved to Google Sheets successfully!")
-        st.rerun()
+    if submitted:
+        if new_task.strip() != "":
+            st.session_state.tasks.append({
+                "task": new_task.strip(),
+                "description": description,
+                "task_date": task_date,
+                "due_date": due_date,
+                "priority": priority,
+                "status": status
+            })
+            if save_data(st.session_state.tasks):
+                st.success("Task added and saved to Google Sheets successfully!")
+                st.rerun()
+        else:
+            st.warning("Task Title cannot be empty!")
 
 st.divider()
 
